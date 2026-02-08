@@ -1,0 +1,13 @@
+sample_id,condition,cell_type,treatment,replicate
+sample_01,Myoblast_DMSO,Myoblast,DMSO,1
+sample_02,Myoblast_DMSO,Myoblast,DMSO,2
+sample_03,Myoblast_DMSO,Myoblast,DMSO,3
+sample_04,Myoblast_Taxol,Myoblast,Taxol,1
+sample_05,Myoblast_Taxol,Myoblast,Taxol,2
+sample_06,Myoblast_Taxol,Myoblast,Taxol,3
+sample_07,Myotube_DMSO,Myotube,DMSO,1
+sample_08,Myotube_DMSO,Myotube,DMSO,2
+sample_09,Myotube_DMSO,Myotube,DMSO,3
+sample_10,Myotube_Taxol,Myotube,Taxol,1
+sample_11,Myotube_Taxol,Myotube,Taxol,2
+sample_12,Myotube_Taxol,Myotube,Taxol,3

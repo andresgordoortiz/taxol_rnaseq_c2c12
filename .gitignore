@@ -1,0 +1,95 @@
+# ============================================================================
+# R / RStudio / Bioinformatics .gitignore
+# ============================================================================
+
+# R session data
+.RData
+.Rhistory
+.Rproj.user/
+*.Rproj
+
+# R environments
+.Renviron
+renv/
+renv.lock
+
+# knitr / rmarkdown output
+*_cache/
+*_files/
+*.html
+*.docx
+
+# Compiled R files
+*.Rout
+*.Rout.fail
+
+# Intermediate data files
+*.RDS
+*.rds
+*.rda
+
+# ============================================================================
+# Data files (large or generated)
+# ============================================================================
+
+# Vast-tools inclusion tables
+inclusion_tables/
+*.tab
+
+# Generated CSV results
+results/*.csv
+
+# Plot outputs
+plots/*.pdf
+plots/*.svg
+plots/*.png
+plots/*.tiff
+
+# ============================================================================
+# OS-specific
+# ============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+*~
+.nfs*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ============================================================================
+# IDE / Editor
+# ============================================================================
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# ============================================================================
+# Misc
+# ============================================================================
+
+# Log files
+*.log
+
+# Compressed archives (data)
+*.gz
+*.zip
+*.tar
+*.bz2
+
+# Temporary files
+tmp/
+temp/
