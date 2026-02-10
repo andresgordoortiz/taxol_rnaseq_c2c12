@@ -47,8 +47,32 @@ if (is.na(COMP_INDEX) || COMP_INDEX < 1 || COMP_INDEX > 4) {
   stop("Comparison index must be between 1 and 4. Got: ", COMP_INDEX)
 }
 
+# ============================================================================
+# RESOLVE SCRIPT DIRECTORY (robust for SLURM / Singularity)
+# getwd() may not be the project dir on the cluster. We derive it from
+# the script path itself, or fall back to SLURM_SUBMIT_DIR, then getwd().
+# ============================================================================
+
+SCRIPT_DIR <- tryCatch({
+  # Works when called as: Rscript /path/to/01_fdr_calculation.R
+  script_args <- commandArgs(trailingOnly = FALSE)
+  file_arg <- grep("^--file=", script_args, value = TRUE)
+  if (length(file_arg) > 0) {
+    normalizePath(dirname(sub("^--file=", "", file_arg[1])))
+  } else {
+    stop("no --file arg")
+  }
+}, error = function(e) {
+  # Fallback: SLURM_SUBMIT_DIR -> getwd()
+  d <- Sys.getenv("SLURM_SUBMIT_DIR", unset = getwd())
+  normalizePath(d)
+})
+
+cat(sprintf("Resolved project directory: %s\n", SCRIPT_DIR))
+setwd(SCRIPT_DIR)
+
 cat(strrep("=", 70), "\n")
-cat(sprintf("01_fdr_calculation.R — betAS FDR (nsim=1000) — Comparison %d/4\n",
+cat(sprintf("01_fdr_calculation.R -- betAS FDR (nsim=1000) -- Comparison %d/4\n",
             COMP_INDEX))
 cat(strrep("=", 70), "\n\n")
 
@@ -79,16 +103,25 @@ set.seed(SEED)
 # PATHS — Adjust these to your cluster paths
 # ============================================================================
 
-INCLUSION_TABLE <- file.path(getwd(),
-                             "INCLUSION_LEVELS_FULL-mm10-12.tab")
-METADATA_FILE   <- file.path(getwd(), "metadata", "metadata.csv")
-RESULTS_DIR     <- file.path(getwd(), "results")
+INCLUSION_TABLE <- file.path(SCRIPT_DIR, "INCLUSION_LEVELS_FULL-mm10-12.tab")
+METADATA_FILE   <- file.path(SCRIPT_DIR, "metadata", "metadata.csv")
+RESULTS_DIR     <- file.path(SCRIPT_DIR, "results")
 
-if (!dir.exists(RESULTS_DIR)) dir.create(RESULTS_DIR, recursive = TRUE)
+# showWarnings=FALSE: safe when multiple array tasks create this simultaneously
+if (!dir.exists(RESULTS_DIR)) dir.create(RESULTS_DIR, recursive = TRUE,
+                                         showWarnings = FALSE)
 
 cat("Inclusion table: ", INCLUSION_TABLE, "\n")
 cat("Metadata:        ", METADATA_FILE, "\n")
 cat("Results dir:     ", RESULTS_DIR, "\n\n")
+
+# --- Validate input files exist before doing anything expensive ---
+if (!file.exists(INCLUSION_TABLE)) {
+  stop("Inclusion table not found: ", INCLUSION_TABLE)
+}
+if (!file.exists(METADATA_FILE)) {
+  stop("Metadata file not found: ", METADATA_FILE)
+}
 
 # ============================================================================
 # LOAD DATA
@@ -190,16 +223,33 @@ run_fdr <- function(event_data, comp, groupList) {
   cat(sprintf("    Done in %s min\n", elapsed))
 
   if (!is.null(result)) {
-    outfile <- file.path(RESULTS_DIR, paste0(outname, ".csv"))
-    write.csv(result, outfile, row.names = FALSE)
-    cat(sprintf("    Saved: %s (%d events)\n", outfile, nrow(result)))
+    # --- Save RDS first (fast, binary, no precision loss) as safety backup ---
+    rds_file <- file.path(RESULTS_DIR, paste0(outname, ".rds"))
+    tryCatch({
+      saveRDS(result, rds_file)
+      cat(sprintf("    RDS backup saved: %s\n", rds_file))
+    }, error = function(e) {
+      cat(sprintf("    WARNING: RDS save failed: %s\n", e$message))
+    })
+
+    # --- Write CSV atomically: write to temp file, then rename ---
+    outfile  <- file.path(RESULTS_DIR, paste0(outname, ".csv"))
+    tmpfile  <- file.path(RESULTS_DIR, paste0(".", outname, ".csv.tmp"))
+    tryCatch({
+      write.csv(result, tmpfile, row.names = FALSE)
+      file.rename(tmpfile, outfile)
+      cat(sprintf("    Saved: %s (%d events)\n", outfile, nrow(result)))
+    }, error = function(e) {
+      cat(sprintf("    ERROR writing CSV: %s\n", e$message))
+      cat(sprintf("    Result is preserved in RDS: %s\n", rds_file))
+    })
 
     # Quick summary
     sig <- result[!is.na(result$FDR) & result$FDR <= 0.05 &
                   abs(result$deltapsi) >= 0.1, ]
     n_inc  <- sum(sig$deltapsi > 0, na.rm = TRUE)
     n_skip <- sum(sig$deltapsi < 0, na.rm = TRUE)
-    cat(sprintf("    Significant (FDR<=0.05, |dPSI|>=0.1): %d total (↑%d ↓%d)\n",
+    cat(sprintf("    Significant (FDR<=0.05, |dPSI|>=0.1): %d total (+%d -%d)\n",
                 nrow(sig), n_inc, n_skip))
   }
 
@@ -219,13 +269,23 @@ cat(strrep("-", 50), "\n")
 result <- run_fdr(all_events, comp, groupList)
 
 # ============================================================================
-# DONE
+# DONE — exit with appropriate status code for SLURM
 # ============================================================================
 
 cat("\n")
-cat(strrep("=", 70), "\n")
-cat(sprintf("FDR CALCULATION COMPLETE — %s\n", comp$name))
-cat("Results saved to: ", RESULTS_DIR, "\n")
-cat(strrep("=", 70), "\n")
-cat("\nSession info:\n")
-sessionInfo()
+if (is.null(result)) {
+  cat(strrep("=", 70), "\n")
+  cat(sprintf("FDR CALCULATION FAILED -- %s\n", comp$name))
+  cat(strrep("=", 70), "\n")
+  cat("\nSession info:\n")
+  print(sessionInfo())
+  quit(status = 1, save = "no")
+} else {
+  cat(strrep("=", 70), "\n")
+  cat(sprintf("FDR CALCULATION COMPLETE -- %s\n", comp$name))
+  cat("Results saved to: ", RESULTS_DIR, "\n")
+  cat(strrep("=", 70), "\n")
+  cat("\nSession info:\n")
+  print(sessionInfo())
+  quit(status = 0, save = "no")
+}

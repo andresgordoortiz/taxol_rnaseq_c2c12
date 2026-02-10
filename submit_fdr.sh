@@ -29,7 +29,9 @@ set -u
 set -o pipefail
 
 # --- Configuration ---
-WORKDIR="$(cd "$(dirname "$0")" && pwd)"
+# Use SLURM_SUBMIT_DIR (always set by SLURM to the submission directory)
+# Fallback to dirname $0 for local testing
+WORKDIR="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")" && pwd)}"
 CONTAINER="docker://andresgordoortiz/splicing_analysis_r_crg:v1.5"
 SIF_CACHE="${WORKDIR}/singularity_cache"
 
@@ -56,9 +58,20 @@ echo "============================================================"
 # --- Pull/cache the container if not already present ---
 export SINGULARITY_CACHEDIR="${SIF_CACHE}"
 
+# --- Validate inputs before launching container ---
+if [[ ! -f "${WORKDIR}/INCLUSION_LEVELS_FULL-mm10-12.tab" ]]; then
+    echo "ERROR: Inclusion table not found at ${WORKDIR}/INCLUSION_LEVELS_FULL-mm10-12.tab"
+    exit 1
+fi
+if [[ ! -f "${WORKDIR}/metadata/metadata.csv" ]]; then
+    echo "ERROR: Metadata file not found at ${WORKDIR}/metadata/metadata.csv"
+    exit 1
+fi
+
 # --- Run the R script inside the container ---
 singularity exec \
     --bind "${WORKDIR}:${WORKDIR}" \
+    --pwd "${WORKDIR}" \
     "${CONTAINER}" \
     Rscript "${WORKDIR}/01_fdr_calculation.R" "${SLURM_ARRAY_TASK_ID}"
 
