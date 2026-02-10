@@ -69,11 +69,15 @@ if [[ ! -f "${WORKDIR}/metadata/metadata.csv" ]]; then
 fi
 
 # --- Run the R script inside the container ---
+# Disable renv activation — the container already has all dependencies
 singularity exec \
     --bind "${WORKDIR}:${WORKDIR}" \
     --pwd "${WORKDIR}" \
+    --env RENV_CONFIG_ACTIVATE_PROJECT=FALSE \
+    --env R_PROFILE_USER="" \
     "${CONTAINER}" \
-    Rscript "${WORKDIR}/01_fdr_calculation.R" "${SLURM_ARRAY_TASK_ID}"
+    Rscript --no-site-file --no-init-file \
+    "${WORKDIR}/01_fdr_calculation.R" "${SLURM_ARRAY_TASK_ID}"
 
 echo ""
 echo "============================================================"
