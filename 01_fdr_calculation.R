@@ -3,9 +3,9 @@
 # Taxol Effect on mRNA Splicing in C2C12 Myoblasts and Myotubes
 # FDR Calculation Using betAS (1000 Simulations)
 #
-# PURPOSE: Compute FDR-corrected differential splicing statistics for all
-#          pairwise comparisons using betAS::prepareTableVolcanoFDR.
-#          This script is designed to run on a cluster (no plotting).
+# PURPOSE: Compute FDR-corrected differential splicing statistics for a
+#          single pairwise comparison using betAS::prepareTableVolcanoFDR.
+#          Designed to run as a SLURM job array (one task per comparison).
 #
 # EXPERIMENTAL DESIGN:
 #   12 samples total:
@@ -14,7 +14,7 @@
 #   - 3 Myotube DMSO (control)
 #   - 3 Myotube Taxol
 #
-# COMPARISONS:
+# COMPARISONS (mapped to SLURM_ARRAY_TASK_ID 1-4):
 #   1. Myoblast:  Taxol vs DMSO (Taxol effect in undifferentiated cells)
 #   2. Myotube:   Taxol vs DMSO (Taxol effect in differentiated cells)
 #   3. DMSO:      Myotube vs Myoblast (differentiation effect, no drug)
@@ -23,13 +23,33 @@
 # EVENT TYPES: All types processed together (C1, C2, C3, S, MIC, IR, ANN, ALTD, ALTA)
 #
 # USAGE:
-#   Rscript 01_fdr_calculation.R
+#   Rscript 01_fdr_calculation.R <comparison_index>  # 1-4
+#   Or set SLURM_ARRAY_TASK_ID environment variable
 #
 # Author: Andrés Gordo Ortiz
 # ============================================================================
 
+# ============================================================================
+# PARSE COMPARISON INDEX (from CLI argument or SLURM_ARRAY_TASK_ID)
+# ============================================================================
+
+args <- commandArgs(trailingOnly = TRUE)
+
+if (length(args) >= 1) {
+  COMP_INDEX <- as.integer(args[1])
+} else if (Sys.getenv("SLURM_ARRAY_TASK_ID") != "") {
+  COMP_INDEX <- as.integer(Sys.getenv("SLURM_ARRAY_TASK_ID"))
+} else {
+  stop("No comparison index provided. Pass as argument or set SLURM_ARRAY_TASK_ID.")
+}
+
+if (is.na(COMP_INDEX) || COMP_INDEX < 1 || COMP_INDEX > 4) {
+  stop("Comparison index must be between 1 and 4. Got: ", COMP_INDEX)
+}
+
 cat(strrep("=", 70), "\n")
-cat("01_fdr_calculation.R — betAS FDR Calculation (nsim = 1000)\n")
+cat(sprintf("01_fdr_calculation.R — betAS FDR (nsim=1000) — Comparison %d/4\n",
+            COMP_INDEX))
 cat(strrep("=", 70), "\n\n")
 
 # ============================================================================
@@ -59,8 +79,8 @@ set.seed(SEED)
 # PATHS — Adjust these to your cluster paths
 # ============================================================================
 
-INCLUSION_TABLE <- file.path(getwd(), "inclusion_tables",
-                             "INCLUSION_LEVELS_FULL-mm10.tab")
+INCLUSION_TABLE <- file.path(getwd(),
+                             "INCLUSION_LEVELS_FULL-mm10-12.tab")
 METADATA_FILE   <- file.path(getwd(), "metadata", "metadata.csv")
 RESULTS_DIR     <- file.path(getwd(), "results")
 
@@ -187,53 +207,24 @@ run_fdr <- function(event_data, comp, groupList) {
 }
 
 cat(strrep("=", 70), "\n")
-cat("STARTING FDR CALCULATIONS (nsim = ", NSIM, ")\n")
+cat(sprintf("RUNNING FDR CALCULATION (nsim = %d) — Comparison %d\n", NSIM, COMP_INDEX))
 cat(strrep("=", 70), "\n\n")
 
-all_results <- list()
+comp <- comparisons[[COMP_INDEX]]
 
-for (comp in comparisons) {
-  cat(strrep("-", 50), "\n")
-  cat("Comparison: ", comp$name, "\n")
-  cat(strrep("-", 50), "\n")
+cat(strrep("-", 50), "\n")
+cat("Comparison: ", comp$name, "\n")
+cat(strrep("-", 50), "\n")
 
-  all_results[[comp$name]] <-
-    run_fdr(all_events, comp, groupList)
-
-  cat("\n")
-}
+result <- run_fdr(all_events, comp, groupList)
 
 # ============================================================================
-# SUMMARY TABLE
+# DONE
 # ============================================================================
-
-cat(strrep("=", 70), "\n")
-cat("SUMMARY OF ALL COMPARISONS\n")
-cat(strrep("=", 70), "\n\n")
-
-summary_rows <- list()
-for (name in names(all_results)) {
-  res <- all_results[[name]]
-  if (!is.null(res)) {
-    sig <- res[!is.na(res$FDR) & res$FDR <= 0.05 & abs(res$deltapsi) >= 0.1, ]
-    summary_rows[[length(summary_rows) + 1]] <- data.frame(
-      comparison   = name,
-      total_events = nrow(res),
-      significant  = nrow(sig),
-      included     = sum(sig$deltapsi > 0, na.rm = TRUE),
-      skipped      = sum(sig$deltapsi < 0, na.rm = TRUE),
-      stringsAsFactors = FALSE
-    )
-  }
-}
-
-summary_df <- do.call(rbind, summary_rows)
-print(summary_df)
-write.csv(summary_df, file.path(RESULTS_DIR, "fdr_summary.csv"), row.names = FALSE)
 
 cat("\n")
 cat(strrep("=", 70), "\n")
-cat("ALL FDR CALCULATIONS COMPLETE\n")
+cat(sprintf("FDR CALCULATION COMPLETE — %s\n", comp$name))
 cat("Results saved to: ", RESULTS_DIR, "\n")
 cat(strrep("=", 70), "\n")
 cat("\nSession info:\n")
