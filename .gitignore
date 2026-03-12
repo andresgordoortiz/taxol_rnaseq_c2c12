@@ -40,10 +40,10 @@ inclusion_tables/
 results/*.csv
 
 # Plot outputs
-plots/*.pdf
-plots/*.svg
-plots/*.png
-plots/*.tiff
+*.pdf
+*.svg
+*.png
+*.tiff
 
 # ============================================================================
 # OS-specific
