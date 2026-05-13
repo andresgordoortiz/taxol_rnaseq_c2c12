@@ -157,7 +157,7 @@ metadata <- read.csv(METADATA_FILE, stringsAsFactors = FALSE) %>% arrange(condit
 
 cat("--- Loading FDR results ---\n")
 result_files <- list.files(RESULTS_DIR, pattern = "\\.csv$", full.names = TRUE)
-result_files <- result_files[!grepl("summary|enrichr_|deseq2_|integrated_|matt_", result_files)]
+result_files <- result_files[!grepl("summary|enrichr_|deseq2_|integrated_|matt_|event_class|force_gene|interaction_|ir_features|ir_quadrant|nuclear_speckle|quadrant_feature|sf_corr|taxol_responsive|vst_matrix", result_files)]
 
 fdr_results <- list()
 for (f in result_files) {
@@ -364,10 +364,18 @@ cat(strrep("=", 70), "\n\n")
 extract_sig <- function(df, name) {
   sig <- df %>%
     filter(!is.na(FDR), FDR <= 0.05, abs(deltapsi) >= 0.1) %>%
-    mutate(direction = ifelse(deltapsi > 0, "Included/Retained", "Skipped/Spliced Out"))
+    mutate(
+      direction = ifelse(deltapsi > 0, "Included/Retained", "Skipped/Spliced Out"),
+      event_type = case_when(
+        grepl("^MmuEX",  EVENT) ~ "Cassette Exon (EX)",
+        grepl("^MmuINT", EVENT) ~ "Intron Retention (IR)",
+        TRUE                    ~ "Other"
+      )
+    )
   data.frame(
     comparison = name,
     direction  = sig$direction,
+    event_type = sig$event_type,
     stringsAsFactors = FALSE
   )
 }
@@ -388,19 +396,21 @@ p_summary <- ggplot(sig_summary, aes(x = comparison_label, fill = direction)) +
   geom_bar(position = "stack", width = 0.7, color = "grey30", linewidth = 0.2) +
   scale_fill_manual(values = c("Included/Retained" = "#D62839",
                                 "Skipped/Spliced Out" = "#4BA3C3")) +
+  facet_wrap(~ event_type, scales = "free_y") +
   labs(
     title = "Differential Splicing Events per Comparison",
-    subtitle = "FDR \u2264 0.05, |\u0394PSI| \u2265 0.1",
+    subtitle = "FDR <= 0.05, |dPSI| >= 0.1 -- separated by event type",
     x = NULL, y = "Number of Events", fill = NULL
   ) +
   theme_taxol() +
   theme(
     axis.text.x = element_text(angle = 30, hjust = 1, size = rel(0.8)),
-    legend.position = "top"
+    legend.position = "top",
+    strip.text = element_text(face = "bold", size = rel(1.1))
   )
 
 ggsave(file.path(PLOTS_DIR, "04_de_events_summary.pdf"), p_summary,
-       width = 10, height = 5, device = SAVE_DEVICE)
+       width = 12, height = 5, device = SAVE_DEVICE)
 cat("  Saved: 04_de_events_summary.pdf\n")
 
 # ----------------------------------------------------------------------------
@@ -929,13 +939,22 @@ if (primary_comp %in% names(fdr_results)) {
     })
 
     if (!is.null(ensembl)) {
-      id_map <- getBM(
-        attributes = c("ensembl_gene_id", "mgi_symbol"),
-        filters    = "ensembl_gene_id",
-        values     = exon_counts_raw$ensembl_id,
-        mart       = ensembl
-      )
-      # Merge: Ensembl → symbol → exon count
+      id_map <- tryCatch({
+        getBM(
+          attributes = c("ensembl_gene_id", "mgi_symbol"),
+          filters    = "ensembl_gene_id",
+          values     = exon_counts_raw$ensembl_id,
+          mart       = ensembl
+        )
+      }, error = function(e) {
+        cat("  getBM failed:", conditionMessage(e), "\n")
+        NULL
+      })
+    } else {
+      id_map <- NULL
+    }
+
+    if (!is.null(id_map) && nrow(id_map) > 0) {
       exon_counts_mapped <- merge(exon_counts_raw, id_map,
                                   by.x = "ensembl_id", by.y = "ensembl_gene_id") %>%
         filter(mgi_symbol != "") %>%
